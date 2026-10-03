@@ -198,7 +198,7 @@ async function refreshButtons() {
 
       if (matchResult) {
         setState(context, 0)
-        setTitle(context, `${formatElapsed(currentTimeEntry.start)}\n\n\n${label}`)
+        setTitle(context, `${formatElapsed(currentTimeEntry.start)}\n${label}`)
       } else { // if not, make sure it's 'off'
         setState(context, 1)
         setTitle(context, label)
