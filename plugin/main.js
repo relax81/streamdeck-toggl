@@ -309,7 +309,7 @@ async function stopEntry(apiToken = isRequired(), entryId = isRequired(), worksp
 
 async function refreshCurrentEntry(apiToken = isRequired()) {
   try {
-    const response = await togglFetch(apiToken, "/me/time_entries/current", { label: "poll current entry" });
+    const response = await togglFetch(apiToken, "/me/time_entries/current", { cutoff: POLL_CUTOFF, label: "poll current entry" });
     const data = await response.json();
     currentTimeEntry = data;
     lastRefreshTime = Date.now();

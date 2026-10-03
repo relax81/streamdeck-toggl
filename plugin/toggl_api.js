@@ -8,7 +8,8 @@
 // - When Toggl reports the hourly limit (HTTP 402 or 429) all requests are paused until the quota resets.
 
 const API_LIMIT = 30 // requests per hour on the free Toggl plan
-const LISTING_CUTOFF = 24 // non-essential requests (lists, polling) stop here, so start/stop still work
+const LISTING_CUTOFF = 24 // lists for the Property Inspector stop here, so start/stop and polling still work
+const POLL_CUTOFF = 28 // polling only costs a few requests per hour, it should be among the last to stop
 const ONE_HOUR = 60 * 60 * 1000
 const CACHE_TTL = 24 * ONE_HOUR
 const DEFAULT_RETRY_AFTER = 15 * 60 * 1000
@@ -64,13 +65,13 @@ function apiUsage() {
   }
 }
 
-async function togglFetch(apiToken, path, { method = 'GET', body, essential = false, label = path } = {}) {
+async function togglFetch(apiToken, path, { method = 'GET', body, essential = false, cutoff = LISTING_CUTOFF, label = path } = {}) {
   const usage = apiUsage()
   // While the limit is active every request would only be rejected, so don't even send it
   if (usage.blockedUntil > Date.now()) {
     throw new Error(`Toggl hourly limit reached, paused until ${new Date(usage.blockedUntil).toLocaleTimeString()}`)
   }
-  if (!essential && usage.used >= LISTING_CUTOFF) {
+  if (!essential && usage.used >= cutoff) {
     throw new Error(`API budget nearly used up (${usage.used}/${API_LIMIT} requests in the last hour)`)
   }
 
