@@ -172,7 +172,7 @@ async function updateTasks (apiToken, workspaceId, projectId) {
   try {
     await getTasks(apiToken, workspaceId, projectId).then(tasksData => {
       document.getElementById('tid').innerHTML = '<option value="0"></option>'
-      document.getElementById('taskWrapper').classList.remove('hidden')
+      document.getElementById('taskWrapper').classList.toggle('hidden', !tasksData || tasksData.length === 0)
       const selectEl = document.getElementById('tid')
 
       if (tasksData != null) tasksData.sort((a, b) => { return (a.active === b.active) ? 0 : a.active ? -1 : 1; });

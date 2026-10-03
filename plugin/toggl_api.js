@@ -94,7 +94,9 @@ async function togglFetch(apiToken, path, { method = 'GET', body, essential = fa
     forgetLastRequest()
     log(`[API] hourly limit hit (${response.status}), pausing all requests for ${Math.round(waitMs / 1000)}s`)
   }
-  throw new Error(`Toggl API Error: ${text} (${response.status})`)
+  const error = new Error(`Toggl API Error: ${text} (${response.status})`)
+  error.status = response.status
+  throw error
 }
 
 // ---- List cache for the Property Inspector -------------------------------
@@ -147,8 +149,15 @@ function listForKind(kind, apiToken, { workspaceId, projectId }, force) {
     case 'projects':
       return cachedList(cacheKey(apiToken, kind, workspaceId), force, () => fetchProjects(apiToken, workspaceId))
     case 'tasks':
-      return cachedList(cacheKey(apiToken, kind, workspaceId, projectId), force, () =>
-        fetchJsonArray(apiToken, `/workspaces/${workspaceId}/projects/${projectId}/tasks`, 'tasks'))
+      return cachedList(cacheKey(apiToken, kind, workspaceId, projectId), force, async () => {
+        try {
+          return await fetchJsonArray(apiToken, `/workspaces/${workspaceId}/projects/${projectId}/tasks`, 'tasks')
+        } catch (e) {
+          // Tasks are a paid Toggl feature, the free plan answers 403. Cache that as "no tasks" instead of asking again
+          if (e.status === 403) return []
+          throw e
+        }
+      })
     case 'tags':
       return cachedList(cacheKey(apiToken, kind, workspaceId), force, () =>
         fetchJsonArray(apiToken, `/workspaces/${workspaceId}/tags`, 'tags'))
