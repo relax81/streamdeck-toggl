@@ -14,7 +14,8 @@ const CACHE_TTL = 24 * ONE_HOUR
 const DEFAULT_RETRY_AFTER = 15 * 60 * 1000
 const PROJECTS_PER_PAGE = 200
 
-const LS_REQUEST_LOG = 'togglRequestLog'
+// 'togglRequestLog2': the first version also counted requests that Toggl rejected, start over with a clean count
+const LS_REQUEST_LOG = 'togglRequestLog2'
 const LS_BLOCKED_UNTIL = 'togglBlockedUntil'
 const LS_CACHE_PREFIX = 'togglCache:'
 
@@ -46,6 +47,13 @@ function recordRequest(label) {
   entries.push(Date.now())
   lsSet(LS_REQUEST_LOG, entries)
   log(`[API] request ${entries.length}/${API_LIMIT} in last hour: ${label}`)
+}
+
+// Requests rejected by the limit don't use up quota, so they must not count against our budget either
+function forgetLastRequest() {
+  const entries = recentRequests()
+  entries.pop()
+  lsSet(LS_REQUEST_LOG, entries)
 }
 
 function apiUsage() {
@@ -83,6 +91,7 @@ async function togglFetch(apiToken, path, { method = 'GET', body, essential = fa
     const retryAfter = Number(response.headers.get('Retry-After')) || Number((text.match(/reset in (\d+) seconds/) || [])[1])
     const waitMs = retryAfter > 0 ? (retryAfter + 5) * 1000 : DEFAULT_RETRY_AFTER
     lsSet(LS_BLOCKED_UNTIL, Date.now() + waitMs)
+    forgetLastRequest()
     log(`[API] hourly limit hit (${response.status}), pausing all requests for ${Math.round(waitMs / 1000)}s`)
   }
   throw new Error(`Toggl API Error: ${text} (${response.status})`)
