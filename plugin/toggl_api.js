@@ -5,7 +5,7 @@
 //   writes it to the Stream Deck log, so the usage can be inspected.
 // - Lists for the Property Inspector (workspaces, projects, tasks, tags) are cached here with a long TTL,
 //   so opening or switching buttons in the Stream Deck app costs no API requests.
-// - On HTTP 429 further non-essential requests are paused until the Retry-After time has passed.
+// - When Toggl reports the hourly limit (HTTP 402 or 429) all requests are paused until the quota resets.
 
 const API_LIMIT = 30 // requests per hour on the free Toggl plan
 const LISTING_CUTOFF = 24 // non-essential requests (lists, polling) stop here, so start/stop still work
@@ -58,13 +58,12 @@ function apiUsage() {
 
 async function togglFetch(apiToken, path, { method = 'GET', body, essential = false, label = path } = {}) {
   const usage = apiUsage()
-  if (!essential) {
-    if (usage.blockedUntil > Date.now()) {
-      throw new Error(`Toggl rate limit active, paused until ${new Date(usage.blockedUntil).toLocaleTimeString()}`)
-    }
-    if (usage.used >= LISTING_CUTOFF) {
-      throw new Error(`API budget nearly used up (${usage.used}/${API_LIMIT} requests in the last hour)`)
-    }
+  // While the limit is active every request would only be rejected, so don't even send it
+  if (usage.blockedUntil > Date.now()) {
+    throw new Error(`Toggl hourly limit reached, paused until ${new Date(usage.blockedUntil).toLocaleTimeString()}`)
+  }
+  if (!essential && usage.used >= LISTING_CUTOFF) {
+    throw new Error(`API budget nearly used up (${usage.used}/${API_LIMIT} requests in the last hour)`)
   }
 
   recordRequest(`${method} ${label}`)
@@ -76,14 +75,17 @@ async function togglFetch(apiToken, path, { method = 'GET', body, essential = fa
     body: body === undefined ? undefined : JSON.stringify(body)
   })
 
-  if (response.status === 429) {
-    const retryAfter = Number(response.headers.get('Retry-After'))
-    const waitMs = retryAfter > 0 ? retryAfter * 1000 : DEFAULT_RETRY_AFTER
+  if (response.ok) return response
+
+  const text = await response.text()
+  if (response.status === 402 || response.status === 429) {
+    // Toggl says e.g. "Your quota will reset in 1551 seconds" (402 on the free plan, 429 otherwise)
+    const retryAfter = Number(response.headers.get('Retry-After')) || Number((text.match(/reset in (\d+) seconds/) || [])[1])
+    const waitMs = retryAfter > 0 ? (retryAfter + 5) * 1000 : DEFAULT_RETRY_AFTER
     lsSet(LS_BLOCKED_UNTIL, Date.now() + waitMs)
-    log(`[API] 429 from Toggl, pausing non-essential requests for ${Math.round(waitMs / 1000)}s`)
+    log(`[API] hourly limit hit (${response.status}), pausing all requests for ${Math.round(waitMs / 1000)}s`)
   }
-  if (!response.ok) throw new Error(`Toggl API Error: ${await response.text()} (${response.status})`)
-  return response
+  throw new Error(`Toggl API Error: ${text} (${response.status})`)
 }
 
 // ---- List cache for the Property Inspector -------------------------------
