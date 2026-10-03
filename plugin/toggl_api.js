@@ -148,16 +148,26 @@ function listForKind(kind, apiToken, { workspaceId, projectId }, force) {
       return cachedList(cacheKey(apiToken, kind), force, () => fetchJsonArray(apiToken, '/me/workspaces', 'workspaces'))
     case 'projects':
       return cachedList(cacheKey(apiToken, kind, workspaceId), force, () => fetchProjects(apiToken, workspaceId))
-    case 'tasks':
+    case 'tasks': {
+      // Tasks are a paid Toggl feature, the free plan answers 403 for every project of the workspace.
+      // Remember that per workspace so that no other project asks again.
+      const unavailableKey = cacheKey(apiToken, 'tasksUnavailable', workspaceId)
+      const unavailable = lsGet(unavailableKey)
+      if (unavailable && !force && (Date.now() - unavailable.ts) <= CACHE_TTL) {
+        return Promise.resolve({ data: [], ts: unavailable.ts, cached: true })
+      }
       return cachedList(cacheKey(apiToken, kind, workspaceId, projectId), force, async () => {
         try {
           return await fetchJsonArray(apiToken, `/workspaces/${workspaceId}/projects/${projectId}/tasks`, 'tasks')
         } catch (e) {
-          // Tasks are a paid Toggl feature, the free plan answers 403. Cache that as "no tasks" instead of asking again
-          if (e.status === 403) return []
+          if (e.status === 403) {
+            lsSet(unavailableKey, { ts: Date.now() })
+            return []
+          }
           throw e
         }
       })
+    }
     case 'tags':
       return cachedList(cacheKey(apiToken, kind, workspaceId), force, () =>
         fetchJsonArray(apiToken, `/workspaces/${workspaceId}/tags`, 'tags'))
