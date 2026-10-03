@@ -216,7 +216,8 @@ function formatElapsed(startFromToggl) {
 function formatSeconds(seconds) {
   if (seconds < 3600)
     return leadingZero(Math.floor(seconds/60)) + ':' + leadingZero(seconds % 60)
-  return leadingZero(Math.floor(seconds/3600)) + ':' + formatSeconds(seconds % 3600)
+  // From one hour on show hh:mm, seconds no longer matter and the text stays short
+  return leadingZero(Math.floor(seconds/3600)) + ':' + leadingZero(Math.floor((seconds % 3600)/60))
 }
 
 function leadingZero(val) {
