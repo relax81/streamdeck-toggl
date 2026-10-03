@@ -87,12 +87,16 @@
     <div class="sdpi-item" id="apiFrequencyWrapper">
       <div class="sdpi-item-label">API Frequency</div>
       <select class="sdpi-item-value select" id="apiFrequency" onchange="sendSettings()" required>
-        <option value="5">Start + Stop + Check every 5 seconds</option>
-        <option value="60">Start + Stop + Check every minute</option>
+        <option value="5">Start + Stop + Check every 5 seconds (exceeds free Toggl limit!)</option>
+        <option value="60">Start + Stop + Check every minute (exceeds free Toggl limit!)</option>
         <option value="300">Start + Stop + Check every 5 minutes</option>
         <option value="600" selected>Start + Stop + Check every 10 minutes</option>
         <option value="3600">Start + Stop + Check every hour</option>
       </select>
+    </div>
+    <div class="sdpi-item" id="apiUsageWrapper">
+      <div class="sdpi-item-label">API Usage</div>
+      <span class="sdpi-item-value" id="apiUsage">-</span>
     </div>
     <hr>
     <div class="sdpi-item invalidHidden hidden" id="labelWrapper">
@@ -158,7 +162,7 @@
         <div class="sdpi-item-child"><a onclick="openPage('track.toggl.com/timer')">Open Toggl</a></div>
         <div class="sdpi-item-child" style="margin-top: -6px"><a onclick="openPage('track.toggl.com/profile')">Get Toggl API Token</a></div>
         <div class="sdpi-item-child" style="margin-top: -6px"><a onclick="openPage('github.com/blueshiftone/streamdeck-toggl')">GitHub</a></div>
-        <div class="sdpi-item-child" style="margin-top: -6px"><a onclick="clearTogglCache()">Clear Toggl Cache</a></div>
+        <div class="sdpi-item-child" style="margin-top: -6px"><a onclick="reloadFromToggl()">Reload projects/tags from Toggl (uses ~5 API requests)</a></div>
       </details>
     </div>
   </div>

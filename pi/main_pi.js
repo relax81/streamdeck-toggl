@@ -1,11 +1,16 @@
 /* eslint-disable no-unused-vars, no-undef */
-const togglBaseUrl = 'https://api.track.toggl.com/api/v9'
-
 let websocket = null
 let uuid = null
+let actionUUID = null
+
+// Toggl data is fetched (and cached) by the plugin process, see plugin/toggl_api.js
+const pendingRequests = new Map()
+let requestSeq = 0
+let forceReload = false
 
 function connectElgatoStreamDeckSocket (inPort, inPropertyInspectorUUID, inRegisterEvent, inInfo, inActionInfo) {
   uuid = inPropertyInspectorUUID
+  actionUUID = JSON.parse(inActionInfo).action
 
   // Open the web socket (use 127.0.0.1 vs localhost because windows is "slow" resolving 'localhost')
   websocket = new WebSocket('ws://127.0.0.1:' + inPort)
@@ -38,38 +43,90 @@ function connectElgatoStreamDeckSocket (inPort, inPropertyInspectorUUID, inRegis
       document.getElementById('billable').value = payload.billableToggle ? 1 : 0
       document.getElementById('trackingmode').value = payload.trackingMode ?? (payload.fallbackToggle ? 2 : 0) // handle old fallback toggle for backwards compatibility
       
-      const apiToken = document.getElementById('apitoken').value
-
       document.querySelector('.hiddenAll').classList.remove('hiddenAll')
 
-      apiToken && updateWorkspaces(apiToken).then(e => {
-        if (payload.workspaceId) {
-          document.getElementById('workspaceError').classList.add('hiddenError')
-          document.getElementById('wid').value = payload.workspaceId
-
-          updateProjects(apiToken, payload.workspaceId).then(e => {
-            if (payload.projectId) {
-              document.getElementById('pid').value = payload.projectId
-
-              updateTasks(apiToken, payload.workspaceId, payload.projectId).then(e => {
-                if (payload.taskId)
-                  document.getElementById('tid').value = payload.taskId
-              })
-            }
-          })
-
-          updateTags(apiToken, payload.workspaceId).then(() => {
-            if (payload.tagIds && payload.tagIds.length > 0) {
-              document.querySelectorAll('#tagList input[type="checkbox"]').forEach(cb => {
-                cb.checked = payload.tagIds.includes(Number(cb.value))
-              })
-              updateTagPreview()
-            }
-          })
-        }
-      })
+      loadAll(payload)
+    } else if (jsonObj.event === 'sendToPropertyInspector') {
+      const reply = jsonObj.payload
+      updateUsage(reply.usage)
+      const pending = pendingRequests.get(reply.requestId)
+      if (!pending) return
+      pendingRequests.delete(reply.requestId)
+      clearTimeout(pending.timer)
+      if (reply.ok) pending.resolve(reply)
+      else pending.reject(new Error(reply.error))
     }
   }
+}
+
+// Fills all dropdowns for the given (saved or current) selection
+async function loadAll (selection) {
+  const apiToken = document.getElementById('apitoken').value
+  if (!apiToken) return
+
+  await updateWorkspaces(apiToken)
+  if (!selection.workspaceId) return
+
+  document.getElementById('workspaceError').classList.add('hiddenError')
+  document.getElementById('wid').value = selection.workspaceId
+
+  const projectsDone = updateProjects(apiToken, selection.workspaceId).then(async () => {
+    if (!selection.projectId) return
+    document.getElementById('pid').value = selection.projectId
+
+    await updateTasks(apiToken, selection.workspaceId, selection.projectId)
+    if (selection.taskId) document.getElementById('tid').value = selection.taskId
+  })
+
+  const tagsDone = updateTags(apiToken, selection.workspaceId).then(() => {
+    if (selection.tagIds && selection.tagIds.length > 0) {
+      document.querySelectorAll('#tagList input[type="checkbox"]').forEach(cb => {
+        cb.checked = selection.tagIds.includes(Number(cb.value))
+      })
+      updateTagPreview()
+    }
+  })
+
+  await Promise.all([projectsDone, tagsDone])
+}
+
+function requestFromPlugin (kind, params = {}) {
+  return new Promise((resolve, reject) => {
+    const requestId = ++requestSeq
+    const timer = setTimeout(() => {
+      pendingRequests.delete(requestId)
+      reject(new Error('The plugin did not respond (is it running?)'))
+    }, 60000)
+    pendingRequests.set(requestId, { resolve, reject, timer })
+    websocket.send(JSON.stringify({
+      event: 'sendToPlugin',
+      action: actionUUID,
+      context: uuid,
+      payload: { requestId, kind, force: forceReload, ...params }
+    }))
+  })
+}
+
+function updateUsage (usage) {
+  if (!usage) return
+  let text = `${usage.used}/${usage.limit} requests in the last hour`
+  if (usage.blockedUntil > Date.now()) {
+    text += ` - paused until ${new Date(usage.blockedUntil).toLocaleTimeString()}`
+  }
+  document.getElementById('apiUsage').textContent = text
+}
+
+// Discards cached lists and reloads them from Toggl (costs about 5 API requests)
+function reloadFromToggl () {
+  const apiToken = document.getElementById('apitoken').value
+  if (!apiToken) return
+  forceReload = true
+  loadAll({
+    workspaceId: document.getElementById('wid').value,
+    projectId: document.getElementById('pid').value,
+    taskId: document.getElementById('tid').value,
+    tagIds: Array.from(document.querySelectorAll('#tagList input:checked')).map(cb => Number(cb.value))
+  }).finally(() => { forceReload = false })
 }
 
 function sendSettings () {
@@ -252,11 +309,6 @@ async function updateWorkspaces (apiToken) {
   }
 }
 
-function clearTogglCache() {
-  clearCache();
-  alert("Cleared local cache of Toggl workspace, project and task data.");
-}
-
 function openPage (site) {
   websocket && (websocket.readyState === 1) &&
   websocket.send(JSON.stringify({
@@ -268,60 +320,19 @@ function openPage (site) {
 }
 
 async function getTags(apiToken, workspaceId) {
-  const key = `tags:${apiToken}:${workspaceId}`
-  return withCache(key, async () => {
-    const response = await fetch(
-      `${togglBaseUrl}/workspaces/${workspaceId}/tags`,
-      { headers: { Authorization: `Basic ${btoa(`${apiToken}:api_token`)}` } }
-    )
-    if (!response.ok) throw new Error(`Toggl API Error: ${await response.text()} (${response.status})`)
-    const json = await response.json()
-    return Array.isArray(json) ? json : []
-  })
+  return (await requestFromPlugin('tags', { apiToken, workspaceId })).data
 }
 
 async function getTasks(apiToken, workspaceId, projectId) {
-  const key = `tasks:${apiToken}:${workspaceId}:${projectId}`;
-  return withCache(key, async () => {
-    const response = await fetch(
-      `${togglBaseUrl}/workspaces/${workspaceId}/projects/${projectId}/tasks`,
-      { headers: { Authorization: `Basic ${btoa(`${apiToken}:api_token`)}` } }
-    );
-    if (!response.ok) throw new Error(`Toggl API Error: ${await response.text()} (${response.status})`);
-    const json = await response.json();
-    return Array.isArray(json) ? json : [];
-  });
+  return (await requestFromPlugin('tasks', { apiToken, workspaceId, projectId })).data
 }
 
 async function getProjects(apiToken, workspaceId) {
-  const key = `projects:${apiToken}:${workspaceId}`;
-  return withCache(key, async () => {
-    let data = [];
-    for (let page = 1; page <= 100; page++) {
-      const response = await fetch(
-        `${togglBaseUrl}/workspaces/${workspaceId}/projects?page=${page}&per_page=200`,
-        { headers: { Authorization: `Basic ${btoa(`${apiToken}:api_token`)}` } }
-      );
-      if (!response.ok) throw new Error(`Toggl API Error: ${await response.text()} (${response.status})`);
-      const chunk = await response.json();
-      if (!Array.isArray(chunk) || chunk.length === 0) break;
-      data = data.concat(chunk);
-    }
-    return data;
-  });
+  return (await requestFromPlugin('projects', { apiToken, workspaceId })).data
 }
 
 async function getWorkspaces(apiToken) {
-  const key = `workspaces:${apiToken}`;
-  return withCache(key, async () => {
-    const response = await fetch(
-      `${togglBaseUrl}/me/workspaces`,
-      { headers: { Authorization: `Basic ${btoa(`${apiToken}:api_token`)}` } }
-    );
-    if (!response.ok) throw new Error(`Toggl API Error: ${await response.text()} (${response.status})`);
-    const json = await response.json();
-    return Array.isArray(json) ? json : [];
-  });
+  return (await requestFromPlugin('workspaces', { apiToken })).data
 }
 
 function log(message) {
@@ -329,66 +340,4 @@ function log(message) {
     event: "logMessage",
     payload: { message }
   }));
-}
-
-// ---- IndexedDB cache (1 hour TTL) ------------------------------------
-
-const ONE_HOUR = 60 * 60 * 1000;
-const DB_NAME = "togglCache";
-const STORE = "cache";
-
-async function withCache(key, fetcher, ttl = ONE_HOUR) {
-  try {
-    const cached = await getCache(key);
-    if (cached && (Date.now() - cached.ts) <= ttl) {
-      return cached.data;
-    }
-  } catch (_) { /* ignore cache read errors */ }
-
-  const data = await fetcher();
-
-  try {
-    await setCache(key, { ts: Date.now(), data });
-  } catch (_) { /* ignore cache write errors */ }
-
-  return data;
-}
-
-function clearCache() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.deleteDatabase(DB_NAME);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
-    req.onblocked = () => reject(new Error("Cache deletion blocked."));
-  });
-}
-
-function getCache(key) {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE);
-    req.onsuccess = () => {
-      const db = req.result;
-      const tx = db.transaction(STORE, "readonly");
-      const getReq = tx.objectStore(STORE).get(key);
-      getReq.onsuccess = () => { resolve(getReq.result); db.close(); };
-      getReq.onerror = () => { reject(getReq.error); db.close(); };
-    };
-    req.onerror = () => reject(req.error);
-  });
-}
-
-function setCache(key, value) {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE);
-    req.onsuccess = () => {
-      const db = req.result;
-      const tx = db.transaction(STORE, "readwrite");
-      const putReq = tx.objectStore(STORE).put(value, key);
-      putReq.onsuccess = () => { resolve(); db.close(); };
-      putReq.onerror = () => { reject(putReq.error); db.close(); };
-    };
-    req.onerror = () => reject(req.error);
-  });
 }

@@ -30,6 +30,9 @@ function connectElgatoStreamDeckSocket(inPort, inPluginUUID, inRegisterEvent, in
     const isContinue = action === 'one.blueshift.streamdeck.toggl.continue'
 
     switch (event) {
+      case 'sendToPlugin':
+        await handlePropertyInspectorMessage(action, context, payload)
+        break
       case 'keyDown':
         if (isContinue) {
           if (!payload.settings.apiToken) {
@@ -173,7 +176,10 @@ async function refreshButtons() {
     if (!lastRefreshTime || (Date.now() - lastRefreshTime) > refreshInterval) {
       try {
         await refreshCurrentEntry(apiToken)
-      } catch (_) { }
+      } catch (_) {
+        // Also wait a full interval after a failure, otherwise the 1s loop would hammer the API (e.g. on HTTP 429)
+        lastRefreshTime = Date.now()
+      }
     }
 
     // Loop over regular buttons and update as appropriate
@@ -274,15 +280,9 @@ async function startEntry(apiToken = isRequired(), activity = "Time Entry create
     body.task_id    = (taskId && taskId != 0)        ? Number(taskId)    : null;
     body.tag_ids    = (Array.isArray(tagIds) && tagIds.length > 0) ? tagIds.map(Number) : [];
 
-    const response = await fetch(
-      `${togglBaseUrl}/workspaces/${workspaceId}/time_entries`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Basic ${btoa(`${apiToken}:api_token`)}` },
-        body: JSON.stringify(body)
-      }
-    );
-
-    if (!response.ok) throw new Error(`Toggl API Error: ${await response.text()} (${response.status})`);
+    const response = await togglFetch(apiToken, `/workspaces/${workspaceId}/time_entries`, {
+      method: "POST", body, essential: true, label: "start time entry"
+    });
 
     const data = await response.json();
     currentTimeEntry = data;
@@ -295,13 +295,9 @@ async function startEntry(apiToken = isRequired(), activity = "Time Entry create
 
 async function stopEntry(apiToken = isRequired(), entryId = isRequired(), workspaceId = 0) {
   try {
-    const response = await fetch(
-      `${togglBaseUrl}/workspaces/${workspaceId}/time_entries/${entryId}/stop`, {
-        method: "PATCH",
-        headers: { Authorization: `Basic ${btoa(`${apiToken}:api_token`)}` }
-      }
-    );
-    if (!response.ok) throw new Error(`Toggl API Error: ${await response.text()} (${response.status})`);
+    await togglFetch(apiToken, `/workspaces/${workspaceId}/time_entries/${entryId}/stop`, {
+      method: "PATCH", essential: true, label: "stop time entry"
+    });
     currentTimeEntry = null;
     lastRefreshTime = Date.now();
   } catch (e) {
@@ -312,13 +308,7 @@ async function stopEntry(apiToken = isRequired(), entryId = isRequired(), worksp
 
 async function refreshCurrentEntry(apiToken = isRequired()) {
   try {
-    const response = await fetch(
-      `${togglBaseUrl}/me/time_entries/current`, {
-        method: "GET",
-        headers: { Authorization: `Basic ${btoa(`${apiToken}:api_token`)}`}
-      }
-    );
-    if (!response.ok) throw new Error(`Toggl API Error: ${await response.text()} (${response.status})`);
+    const response = await togglFetch(apiToken, "/me/time_entries/current", { label: "poll current entry" });
     const data = await response.json();
     currentTimeEntry = data;
     lastRefreshTime = Date.now();
@@ -333,13 +323,9 @@ async function getLastEntry(apiToken = isRequired()) {
     const now = Date.now()
     const startDate = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString().substring(0, 10)
     const endDate = new Date(now + 24 * 60 * 60 * 1000).toISOString().substring(0, 10)
-    const response = await fetch(
-      `${togglBaseUrl}/me/time_entries?start_date=${startDate}&end_date=${endDate}`, {
-        method: "GET",
-        headers: { Authorization: `Basic ${btoa(`${apiToken}:api_token`)}` }
-      }
-    );
-    if (!response.ok) throw new Error(`Toggl API Error: ${await response.text()} (${response.status})`);
+    const response = await togglFetch(apiToken, `/me/time_entries?start_date=${startDate}&end_date=${endDate}`, {
+      essential: true, label: "last time entries"
+    });
     const entries = await response.json();
     if (!Array.isArray(entries)) return null;
     // Entries are newest-first; find first one that is stopped (duration > 0)
