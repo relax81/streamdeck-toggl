@@ -1,10 +1,17 @@
-# Hassle-free time tracking using [Elgato Stream Deck](https://www.elgato.com/en/gaming/stream-deck) and [Toggl Track](https://toggl.com/track/)
+# Toggl Track for Stream Deck: API-friendly fork
 
-This repository is a fork to continue development of https://github.com/tobimori/streamdeck-toggl which has been discontinued and archived. Note that the Toggl plugin in the Stream Deck marketplace is the old plugin that is no longer maintained.
+> **Fork of [blueshiftone/streamdeck-toggl](https://github.com/blueshiftone/streamdeck-toggl)**, built for the Toggl **free plan** (30 API requests per hour). Cached lists, an API usage display and rate limit handling keep the plugin from using up your quota.
+> Drop-in replacement for the original (same plugin ID), so your buttons and settings are kept. Only one of the two versions can be installed at a time.
+>
+> **[⬇ Download the latest release](https://github.com/relax81/streamdeck-toggl/releases)**
+
+Hassle-free time tracking using [Elgato Stream Deck](https://www.elgato.com/en/gaming/stream-deck) and [Toggl Track](https://toggl.com/track/).
 
 ## 🔀 About this fork
 
-This is a fork of [blueshiftone/streamdeck-toggl](https://github.com/blueshiftone/streamdeck-toggl) that keeps Toggl API usage low. The free Toggl plan only allows **30 API requests per hour**, and the original plugin could use that up just by setting up a few buttons. Changes in this fork:
+[blueshiftone/streamdeck-toggl](https://github.com/blueshiftone/streamdeck-toggl) continues the discontinued and archived [tobimori/streamdeck-toggl](https://github.com/tobimori/streamdeck-toggl). Note that the Toggl plugin in the Stream Deck marketplace is the old plugin that is no longer maintained.
+
+This fork keeps Toggl API usage low. The free Toggl plan only allows **30 API requests per hour**, and the original plugin could use that up just by setting up a few buttons. Changes in this fork:
 
 * **Cached lists.** Workspaces, projects and tags are loaded once and cached for 24 hours by the plugin. Opening or switching buttons in the Stream Deck app no longer calls the Toggl API. Use the *Reload projects/tags from Toggl* link in the Property Inspector to refresh them.
 * **Tasks on the free plan.** Tasks are a paid Toggl feature. The plugin remembers that the free plan has none instead of asking again for every button, and hides the Task field.
