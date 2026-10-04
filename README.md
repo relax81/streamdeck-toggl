@@ -18,6 +18,7 @@ This fork keeps Toggl API usage low. The free Toggl plan only allows **30 API re
 * **API Usage display.** The Property Inspector shows how many requests were used in the last hour. Every request is also written to the Stream Deck log (`[API] request n/30 ...`).
 * **Rate limit handling.** When Toggl reports the hourly limit, all requests pause until the quota resets. Requests that Toggl rejects are no longer repeated every second, and polling for the running timer keeps priority over loading lists.
 * **Display.** Multi-line button labels, the timer sits directly above the label, and elapsed times from one hour on are shown as `hh:mm`.
+* **No archived projects.** The project list only shows active projects. A button that already uses an archived project keeps it in the list.
 
 This fork uses the same plugin ID as the original, so it replaces an installed original and keeps your existing buttons and settings. Only one of them can be installed at a time.
 

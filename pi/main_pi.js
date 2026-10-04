@@ -70,7 +70,7 @@ async function loadAll (selection) {
   document.getElementById('workspaceError').classList.add('hiddenError')
   document.getElementById('wid').value = selection.workspaceId
 
-  const projectsDone = updateProjects(apiToken, selection.workspaceId).then(async () => {
+  const projectsDone = updateProjects(apiToken, selection.workspaceId, selection.projectId).then(async () => {
     if (!selection.projectId) return
     document.getElementById('pid').value = selection.projectId
 
@@ -190,7 +190,8 @@ async function updateTasks (apiToken, workspaceId, projectId) {
   }
 }
 
-async function updateProjects (apiToken, workspaceId) {
+// Archived projects are hidden, except the one the button already uses
+async function updateProjects (apiToken, workspaceId, keepProjectId) {
   try {
     await getProjects(apiToken, workspaceId).then(projectsData => {
       document.getElementById('pid').innerHTML = '<option value="0"></option>'
@@ -200,7 +201,10 @@ async function updateProjects (apiToken, workspaceId) {
       document.getElementById('trackingModeWrapper').classList.remove('hidden')
       const selectEl = document.getElementById('pid')
 
-      if (projectsData != null) projectsData.sort((a, b) => { return (a.active === b.active) ? 0 : a.active ? -1 : 1; });
+      if (projectsData != null) {
+        projectsData = projectsData.filter(p => p.active || p.id.toString() === String(keepProjectId))
+        projectsData.sort((a, b) => { return (a.active === b.active) ? 0 : a.active ? -1 : 1; });
+      }
 
       for (projectNum in projectsData) {
         const optionEl = document.createElement('option')
